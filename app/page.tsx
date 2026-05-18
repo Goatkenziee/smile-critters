@@ -1,158 +1,150 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const CRITTERS = [
-  { id: 'cat',   emoji: '🐱', name: 'Cat',   color: '#FFD6E0', border: '#FF8FAB', fun: 'Cat purrs! 😻',    pts: 10 },
-  { id: 'tree',  emoji: '🌳', name: 'Tree',  color: '#D6F5D6', border: '#5CB85C', fun: 'Tree grows! 🌱',   pts: 15 },
-  { id: 'nacho', emoji: '🧀', name: 'Nacho', color: '#FFF3CD', border: '#FFC107', fun: 'Extra cheesy! 🎉', pts: 20 },
+  { id: 'cat',   emoji: '🐱', name: 'Cat',   color: '#ff6b9d', power: 'Purrfect Dodge', bg: '#2d1b33' },
+  { id: 'tree',  emoji: '🌳', name: 'Tree',  color: '#51cf66', power: 'Root Shield',    bg: '#1b2d1e' },
+  { id: 'nacho', emoji: '🌮', name: 'Nacho', color: '#ffa94d', power: 'Spicy Burst',   bg: '#2d2010' },
 ];
 
 type Critter = typeof CRITTERS[0];
 
-interface Tile {
-  id: number;
-  critter: Critter;
-  left: number;
-  top: number;
-  popped: boolean;
-}
-
-let _uid = 1;
+interface Star { id: number; x: number; y: number; caught: boolean; critter: Critter; }
 
 export default function SmileCritters() {
-  const [score, setScore]     = useState(0);
-  const [lives, setLives]     = useState(3);
-  const [tiles, setTiles]     = useState<Tile[]>([]);
-  const [toast, setToast]     = useState('');
-  const [started, setStarted] = useState(false);
-  const [over, setOver]       = useState(false);
-  const [speed, setSpeed]     = useState(2800);
-  const toastTimer            = useRef<ReturnType<typeof setTimeout>>();
+  const [selected, setSelected] = useState<Critter | null>(null);
+  const [score, setScore] = useState(0);
+  const [stars, setStars] = useState<Star[]>([]);
+  const [gameOn, setGameOn] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [highScore, setHighScore] = useState(0);
+  const [powerActive, setPowerActive] = useState(false);
+  const [powerMsg, setPowerMsg] = useState('');
+  const [combo, setCombo] = useState(0);
 
-  const showToast = (msg: string) => {
-    setToast(msg);
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(''), 1100);
-  };
-
-  useEffect(() => {
-    if (!started || over) return;
-    const t = setInterval(() => {
-      const c = CRITTERS[Math.floor(Math.random() * 3)];
-      const id = _uid++;
-      setTiles(prev => [...prev, { id, critter: c, left: 5 + Math.random() * 82, top: -8, popped: false }]);
-    }, speed);
-    return () => clearInterval(t);
-  }, [started, over, speed]);
-
-  useEffect(() => {
-    if (!started || over) return;
-    const f = setInterval(() => {
-      setTiles(prev => prev.map(t => t.popped ? t : { ...t, top: t.top + 1.8 }));
-    }, 60);
-    return () => clearInterval(f);
-  }, [started, over]);
-
-  useEffect(() => {
-    if (!started || over) return;
-    const missed = tiles.filter(t => !t.popped && t.top > 102);
-    if (missed.length === 0) return;
-    setTiles(prev => prev.filter(t => t.popped || t.top <= 102));
-    setLives(l => {
-      const next = l - missed.length;
-      if (next <= 0) { setOver(true); return 0; }
-      return next;
-    });
-    showToast('😢 Missed!');
-  }, [tiles, started, over]);
-
-  useEffect(() => {
-    if (!started || over) return;
-    const t = setTimeout(() => setSpeed(s => Math.max(500, s - 250)), 6000);
-    return () => clearTimeout(t);
-  }, [speed, started, over]);
-
-  const catch_ = useCallback((id: number, critter: Critter) => {
-    setTiles(prev => prev.map(t => t.id === id ? { ...t, popped: true } : t));
-    setScore(s => s + critter.pts);
-    showToast(`😄 +${critter.pts} — ${critter.fun}`);
-    setTimeout(() => setTiles(prev => prev.filter(t => t.id !== id)), 350);
+  const spawnStar = useCallback((critter: Critter) => {
+    const newStar: Star = {
+      id: Date.now() + Math.random(),
+      x: 10 + Math.random() * 80,
+      y: 10 + Math.random() * 70,
+      caught: false,
+      critter,
+    };
+    setStars(prev => [...prev.slice(-14), newStar]);
   }, []);
 
-  const restart = () => {
-    _uid = 1;
-    setScore(0); setLives(3); setTiles([]); setOver(false);
-    setSpeed(2800); setStarted(true); setToast('');
+  useEffect(() => {
+    if (!gameOn || !selected) return;
+    const interval = setInterval(() => spawnStar(selected), 900);
+    return () => clearInterval(interval);
+  }, [gameOn, selected, spawnStar]);
+
+  useEffect(() => {
+    if (!gameOn) return;
+    const timer = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) {
+          setGameOn(false);
+          clearInterval(timer);
+          setHighScore(prev => Math.max(prev, score));
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [gameOn, score]);
+
+  const catchStar = (id: number) => {
+    setStars(prev => prev.filter(s => s.id !== id));
+    const newCombo = combo + 1;
+    setCombo(newCombo);
+    const pts = newCombo >= 5 ? 3 : newCombo >= 3 ? 2 : 1;
+    setScore(s => s + pts);
   };
 
-  const hearts = '❤️'.repeat(lives) + '🖤'.repeat(Math.max(0, 3 - lives));
+  const activatePower = () => {
+    if (!selected || powerActive) return;
+    setPowerActive(true);
+    setPowerMsg(selected.power + '! +5 ⭐');
+    setScore(s => s + 5);
+    setStars([]);
+    setTimeout(() => { setPowerActive(false); setPowerMsg(''); }, 1500);
+  };
+
+  const startGame = (c: Critter) => {
+    setSelected(c);
+    setScore(0);
+    setStars([]);
+    setTimeLeft(30);
+    setCombo(0);
+    setGameOn(true);
+  };
+
+  const reset = () => { setGameOn(false); setSelected(null); setScore(0); setStars([]); setTimeLeft(30); setCombo(0); };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg,#667eea,#764ba2)', display: 'flex', flexDirection: 'column', alignItems: 'center', fontFamily: "'Segoe UI',sans-serif", userSelect: 'none' }}>
-      <div style={{ textAlign: 'center', padding: '22px 0 6px', color: '#fff' }}>
-        <h1 style={{ fontSize: 46, margin: 0, fontWeight: 900, textShadow: '0 2px 10px rgba(0,0,0,.35)' }}>😊 Smile Critters</h1>
-        <p style={{ fontSize: 17, margin: '4px 0 0', opacity: .85 }}>Cat 🐱 · Tree 🌳 · Nacho 🧀</p>
-      </div>
-      {started && (
-        <div style={{ display: 'flex', gap: 32, color: '#fff', fontSize: 22, fontWeight: 700, margin: '4px 0' }}>
-          <span>⭐ {score}</span>
-          <span>{hearts}</span>
-        </div>
-      )}
-      {toast && (
-        <div style={{ background: 'rgba(255,255,255,.95)', borderRadius: 20, padding: '7px 22px', fontSize: 19, fontWeight: 700, color: '#333', boxShadow: '0 4px 16px rgba(0,0,0,.22)', marginBottom: 4 }}>
-          {toast}
-        </div>
-      )}
-      {started && !over && (
-        <div style={{ position: 'relative', width: '92vw', maxWidth: 580, height: '54vh', background: 'rgba(255,255,255,.12)', borderRadius: 22, overflow: 'hidden', border: '2px solid rgba(255,255,255,.3)', marginTop: 4 }}>
-          {tiles.map(t => (
-            <div
-              key={t.id}
-              onClick={() => !t.popped && catch_(t.id, t.critter)}
-              style={{
-                position: 'absolute',
-                left: `${t.left}%`,
-                top: `${t.top}%`,
-                fontSize: 50,
-                transform: t.popped ? 'translate(-50%,-50%) scale(1.9)' : 'translate(-50%,-50%) scale(1)',
-                opacity: t.popped ? 0 : 1,
-                transition: t.popped ? 'transform .3s, opacity .3s' : undefined,
-                cursor: 'pointer',
-                filter: 'drop-shadow(0 2px 6px rgba(0,0,0,.4))',
-              }}
-            >
-              {t.critter.emoji}
-            </div>
-          ))}
-          <div style={{ position: 'absolute', bottom: 6, width: '100%', textAlign: 'center', color: 'rgba(255,255,255,.45)', fontSize: 13 }}>Tap a critter to catch it!</div>
-        </div>
-      )}
-      {!started && !over && (
-        <div style={{ textAlign: 'center', color: '#fff', marginTop: 18 }}>
-          <div style={{ fontSize: 66, marginBottom: 6 }}>🐱🌳🧀</div>
-          <p style={{ fontSize: 17, opacity: .9, marginBottom: 20 }}>Catch critters before they fall!<br /><strong>Cat</strong> = 10 pts · <strong>Tree</strong> = 15 pts · <strong>Nacho</strong> = 20 pts</p>
-          <button onClick={() => setStarted(true)} style={{ background: '#fff', color: '#764ba2', border: 'none', borderRadius: 50, padding: '13px 46px', fontSize: 22, fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,.28)' }}>▶ Play!</button>
-        </div>
-      )}
-      {over && (
-        <div style={{ textAlign: 'center', color: '#fff', marginTop: 24 }}>
-          <div style={{ fontSize: 60 }}>😢</div>
-          <h2 style={{ fontSize: 34, fontWeight: 900, margin: '8px 0' }}>Game Over!</h2>
-          <p style={{ fontSize: 22 }}>Score: <strong>⭐ {score}</strong></p>
-          <p style={{ fontSize: 15, opacity: .8 }}>{score >= 100 ? '🏆 Nacho champion!' : score >= 50 ? '🌟 Cat approves!' : '🐱 Keep smiling!'}</p>
-          <button onClick={restart} style={{ background: '#fff', color: '#764ba2', border: 'none', borderRadius: 50, padding: '13px 46px', fontSize: 22, fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,.28)', marginTop: 14 }}>🔄 Play Again</button>
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 14, marginTop: 22, flexWrap: 'wrap', justifyContent: 'center', paddingBottom: 24 }}>
-        {CRITTERS.map(c => (
-          <div key={c.id} style={{ background: c.color, border: `2px solid ${c.border}`, borderRadius: 16, padding: '10px 18px', textAlign: 'center', minWidth: 90 }}>
-            <div style={{ fontSize: 38 }}>{c.emoji}</div>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>{c.name}</div>
-            <div style={{ fontSize: 12, color: '#555' }}>+{c.pts} pts</div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}>
+      <h1 style={{ color: '#fff', fontSize: 'clamp(2rem,6vw,4rem)', margin: '0 0 6px', textAlign: 'center', textShadow: '0 0 30px #7c5cbf' }}>😄 Smile Critters</h1>
+      <p style={{ color: '#aaa', marginBottom: 24, fontSize: 14 }}>Pick your critter. Catch the stars. Beat the clock!</p>
+
+      {!gameOn && !selected && (
+        <div>
+          <p style={{ color: '#ccc', textAlign: 'center', marginBottom: 16, fontSize: 18 }}>Choose your critter:</p>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {CRITTERS.map(c => (
+              <button key={c.id} onClick={() => startGame(c)} style={{ background: c.bg, border: `3px solid ${c.color}`, borderRadius: 20, padding: '20px 28px', cursor: 'pointer', color: '#fff', textAlign: 'center', transition: 'transform .15s', fontSize: 16 }}
+                onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.08)')}
+                onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}>
+                <div style={{ fontSize: 52 }}>{c.emoji}</div>
+                <div style={{ fontWeight: 700, color: c.color, fontSize: 20 }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>{c.power}</div>
+              </button>
+            ))}
           </div>
-        ))}
-      </div>
+          {highScore > 0 && <p style={{ color: '#ffd700', textAlign: 'center', marginTop: 20, fontSize: 16 }}>🏆 High Score: {highScore}</p>}
+        </div>
+      )}
+
+      {gameOn && selected && (
+        <div style={{ width: '100%', maxWidth: 600 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, color: '#fff', fontSize: 18, fontWeight: 700 }}>
+            <span style={{ color: selected.color }}>{selected.emoji} {selected.name}</span>
+            <span>⭐ {score}</span>
+            <span style={{ color: timeLeft <= 5 ? '#ff6b6b' : '#fff' }}>⏱ {timeLeft}s</span>
+          </div>
+          {combo >= 3 && <div style={{ color: '#ffd700', textAlign: 'center', fontSize: 13, marginBottom: 6 }}>🔥 {combo}x Combo! +{combo >= 5 ? 3 : 2} per catch</div>}
+          {powerMsg && <div style={{ color: selected.color, textAlign: 'center', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>{powerMsg}</div>}
+          <div style={{ position: 'relative', width: '100%', height: 320, background: 'rgba(255,255,255,0.05)', borderRadius: 16, border: `2px solid ${selected.color}44`, overflow: 'hidden' }}>
+            {stars.map(s => (
+              <button key={s.id} onClick={() => catchStar(s.id)}
+                style={{ position: 'absolute', left: `${s.x}%`, top: `${s.y}%`, background: 'none', border: 'none', cursor: 'pointer', fontSize: 32, transform: 'translate(-50%,-50%)', transition: 'opacity .1s', animation: 'pulse 0.8s infinite' }}
+              >⭐</button>
+            ))}
+            {stars.length === 0 && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', color: '#555', fontSize: 14 }}>Stars incoming…</div>}
+          </div>
+          <button onClick={activatePower} disabled={powerActive}
+            style={{ marginTop: 12, width: '100%', padding: '12px', background: powerActive ? '#333' : selected.color, color: powerActive ? '#555' : '#fff', border: 'none', borderRadius: 10, fontSize: 16, fontWeight: 700, cursor: powerActive ? 'not-allowed' : 'pointer' }}>
+            ⚡ {selected.power} (use once!)
+          </button>
+          <button onClick={reset} style={{ marginTop: 8, width: '100%', padding: '8px', background: 'transparent', color: '#888', border: '1px solid #555', borderRadius: 10, fontSize: 14, cursor: 'pointer' }}>↩ Change Critter</button>
+        </div>
+      )}
+
+      {!gameOn && selected && timeLeft === 0 && (
+        <div style={{ textAlign: 'center', color: '#fff' }}>
+          <div style={{ fontSize: 64 }}>{selected.emoji}</div>
+          <h2 style={{ color: selected.color, fontSize: 32 }}>Game Over!</h2>
+          <p style={{ fontSize: 24 }}>Score: <b style={{ color: '#ffd700' }}>{score}</b></p>
+          {score >= highScore && score > 0 && <p style={{ color: '#ffd700', fontSize: 18 }}>🏆 New High Score!</p>}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 16 }}>
+            <button onClick={() => startGame(selected)} style={{ padding: '12px 24px', background: selected.color, color: '#fff', border: 'none', borderRadius: 10, fontSize: 16, cursor: 'pointer', fontWeight: 700 }}>Play Again</button>
+            <button onClick={reset} style={{ padding: '12px 24px', background: 'transparent', color: '#aaa', border: '1px solid #555', borderRadius: 10, fontSize: 16, cursor: 'pointer' }}>Switch Critter</button>
+          </div>
+        </div>
+      )}
+
+      <style>{`@keyframes pulse { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.2)} }`}</style>
     </div>
   );
 }
